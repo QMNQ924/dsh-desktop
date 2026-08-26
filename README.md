@@ -45,8 +45,8 @@ npm run pack         # 打包独立安装版（NSIS + 便携版，输出到 dist
 ## 打包（electron-builder）
 
 - `npm run pack` 生成两个产物到 `dist\`：
-  - `DeepSeek Harness Setup 0.1.0.exe` — NSIS 安装版（向导式安装、可选安装目录、自动建桌面快捷方式）
-  - `DeepSeekHarness-Portable.exe` — 便携版（免安装，直接双击运行）
+  - `DeepSeek-Harness-Setup-<version>.exe` — NSIS 安装版（向导式安装、可选安装目录、自动建桌面快捷方式）
+  - `DeepSeekHarness-Portable-<version>.exe` — 便携版（免安装，直接双击运行）
 - 国内网络下打包需镜像环境变量（见下）；若已有缓存可省略。
 - 产物未做代码签名，Windows SmartScreen 首次运行可能提示"未知发布者"，选择"仍要运行"即可。
 
@@ -56,6 +56,22 @@ $env:ELECTRON_BUILDER_BINARIES_MIRROR = 'https://npmmirror.com/mirrors/electron-
 $env:CSC_IDENTITY_AUTO_DISCOVERY = 'false'
 npm run pack
 ```
+
+## 自动构建发布（GitHub Actions）
+
+仓库已配置 `.github/workflows/release.yml`：
+
+- **推送 `v*` 标签** → 自动在 GitHub 托管 Runner 上构建两个安装包并发布 Release（附件即安装包）；
+- **手动触发**（仓库 Actions 页 → Run workflow）→ 只构建并上传运行产物，不发布 Release。
+
+发新版只需两条命令：
+
+```powershell
+git tag v0.2.0
+git push origin v0.2.0
+```
+
+> CI 内网络直连 GitHub/npm，无需镜像环境变量。
 
 ## 与网页端的行为差异
 

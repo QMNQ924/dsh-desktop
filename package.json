@@ -23,6 +23,8 @@
     },
     "files": [
       "main.js",
+      "preload.js",
+      "window-controls.js",
       "loading.html",
       "dsh.ico"
     ],
@@ -39,10 +41,11 @@
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
-      "shortcutName": "DeepSeek Harness"
+      "shortcutName": "DeepSeek Harness",
+      "artifactName": "DeepSeek-Harness-Setup-${version}.exe"
     },
     "portable": {
-      "artifactName": "DeepSeekHarness-Portable.exe"
+      "artifactName": "DeepSeekHarness-Portable-${version}.exe"
     }
   }
 }

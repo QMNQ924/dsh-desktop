@@ -13,7 +13,7 @@
  *   3. 打开原生窗口加载 GUI；退出时只清理自己启动的服务器进程。
  */
 
-const { app, BrowserWindow, dialog, shell, session } = require('electron')
+const { app, BrowserWindow, dialog, shell, session, ipcMain } = require('electron')
 const { spawn, execFile } = require('child_process')
 const http = require('http')
 const https = require('https')
@@ -190,13 +190,9 @@ function createWindow() {
     // 注：最大化时 Windows 会按系统行为降级为实色背景。
     backgroundMaterial: 'acrylic',
     // 隐藏原生标题栏：让页面顶部直接成为玻璃标题栏（液态玻璃一体感）。
-    // Windows 覆盖式窗口按钮（最小化/最大化/关闭）浮在页面右上角。
+    // 不使用原生覆盖式窗口按钮（titleBarOverlay），改由页面注入 macOS 红绿灯
+    // 风格的自定义按钮（window-controls.js + preload.js），避免与页面 UI 重叠。
     titleBarStyle: 'hidden',
-    titleBarOverlay: {
-      color: '#00000000',
-      symbolColor: '#d3d8e0',
-      height: 40,
-    },
     // 预渲染背景设为全透明，避免遮挡亚克力；加载页(loading.html)自带深色底。
     backgroundColor: '#00000000',
     show: false,
@@ -205,10 +201,28 @@ function createWindow() {
       nodeIntegration: false,
       sandbox: true,
       spellcheck: false,
+      preload: path.join(__dirname, 'preload.js'),
     },
   })
 
   mainWindow.once('ready-to-show', () => mainWindow.show())
+
+  // 最大化状态变化 → 通知页面（红绿灯按钮切换 最大化/还原 图标）
+  mainWindow.on('maximize', () => {
+    if (!mainWindow.isDestroyed()) mainWindow.webContents.send('dsh:window-maximized-changed', true)
+  })
+  mainWindow.on('unmaximize', () => {
+    if (!mainWindow.isDestroyed()) mainWindow.webContents.send('dsh:window-maximized-changed', false)
+  })
+
+  // 页面加载完成后注入 macOS 红绿灯窗口按钮（幂等，脚本内部会去重）
+  mainWindow.webContents.on('did-finish-load', () => {
+    const scriptPath = path.join(__dirname, 'window-controls.js')
+    fs.readFile(scriptPath, 'utf8', (err, code) => {
+      if (err) { log('window-controls read failed: ' + err.message); return }
+      mainWindow.webContents.executeJavaScript(code).catch((e) => log('window-controls inject failed: ' + e.message))
+    })
+  })
 
   // 外部链接/弹窗 → 系统浏览器，绝不拦截 GUI 内部逻辑
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
@@ -233,6 +247,18 @@ function createWindow() {
 
   return mainWindow
 }
+
+// ---------------------------------------------------------------- window controls (IPC)
+
+/** 自定义窗口控制：页面注入的红绿灯按钮通过 preload 暴露的 API 调到这里。 */
+ipcMain.on('dsh:window-minimize', () => { if (mainWindow && !mainWindow.isDestroyed()) mainWindow.minimize() })
+ipcMain.on('dsh:window-maximize-toggle', () => {
+  if (!mainWindow || mainWindow.isDestroyed()) return
+  if (mainWindow.isMaximized()) mainWindow.unmaximize()
+  else mainWindow.maximize()
+})
+ipcMain.on('dsh:window-close', () => { if (mainWindow && !mainWindow.isDestroyed()) mainWindow.close() })
+ipcMain.handle('dsh:window-is-maximized', () => (mainWindow && !mainWindow.isDestroyed()) ? mainWindow.isMaximized() : false)
 
 function loadTarget() {
   log(`Loading GUI at ${targetUrl}`)
