@@ -10,6 +10,7 @@
     #dsh-traffic-lights button svg{opacity:0;display:block;pointer-events:none}
     #dsh-traffic-lights button:hover svg{opacity:0.85}
     #dsh-traffic-lights button:hover{filter:brightness(0.9)}
+    #dsh-drag-strip{position:fixed;top:0;left:0;right:0;height:24px;z-index:2147483646;-webkit-app-region:drag;app-region:drag;cursor:default}
   `
   document.head.appendChild(style)
 
