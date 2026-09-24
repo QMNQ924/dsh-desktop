@@ -1,7 +1,7 @@
 {
   "name": "dsh-desktop",
   "productName": "DeepSeek Harness",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "description": "DeepSeek Harness 桌面端外壳：原生窗口内运行完整的 DSH Web GUI，功能与网页端完全一致。",
   "author": "QMNQ924",
   "main": "main.js",

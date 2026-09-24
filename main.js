@@ -108,14 +108,88 @@ function isServerUp(target) {
         let body = ''
         res.on('data', (c) => { body += c })
         res.on('end', () => {
-          const ok = res.statusCode === 200 && /<title>\s*DeepSeek Harness/i.test(body)
-          resolve(ok)
+          // 新版 CLI 的 web 服务在未携带 token 时返回 401。
+          // 401 恰恰证明"该端口上是一个启用了鉴权的 DeepSeek Harness 服务"，
+          // 因此必须与 200 一并视作"服务在跑"，否则壳会误判为无服务而重复自启、撞端口。
+          if (res.statusCode === 401) return resolve(true)
+          resolve(res.statusCode === 200 && /<title>\s*DeepSeek Harness/i.test(body))
         })
       },
     )
     req.on('timeout', () => { req.destroy(); resolve(false) })
     req.on('error', () => resolve(false))
   })
+}
+
+/**
+ * 当前这个 dsh web 进程是否真的接受该 token。
+ * 认证模型（@deepseek-ai/dsh-client-connection）：每个进程启动时生成一次性 launch token，
+ * 携带 `?token=` 访问根路径会换取 cookie；服务重启后旧 token 一律 401。
+ * 只需要 200/302 即视为有效；401/403 明确无效；网络错误返回未知（不据此淘汰）。
+ * @param {string} candidateUrl
+ * @returns {Promise<boolean|undefined>}
+ */
+function tokenWorks(candidateUrl) {
+  return new Promise((resolve) => {
+    let u
+    try { u = new URL(candidateUrl) } catch { return resolve(false) }
+    const lib = u.protocol === 'https:' ? https : http
+    const req = lib.get(
+      { hostname: u.hostname, port: u.port || (u.protocol === 'https:' ? 443 : 80), path: u.pathname + u.search, timeout: 4000 },
+      (res) => {
+        res.resume()
+        if (res.statusCode === 401 || res.statusCode === 403) return resolve(false)
+        resolve(true)
+      },
+    )
+    req.on('timeout', () => { req.destroy(); resolve(undefined) })
+    req.on('error', () => resolve(undefined))
+  })
+}
+
+/**
+ * 从 server.out.log 收集历史 token URL（该文件会被多次启动追加，可能混入已失效的旧 token）。
+ * @returns {string[]} 按出现顺序排列的带 token 地址
+ */
+function readTokenUrls() {
+  try {
+    const lines = fs.readFileSync(OUT_LOG, 'utf8').split(/\r?\n/)
+    const out = []
+    for (const line of lines) {
+      const m = line.match(/https?:\/\/\S*?[?&]token=[A-Za-z0-9_-]+/)
+      if (m) out.push(m[0])
+    }
+    return out
+  } catch { return [] }
+}
+
+/**
+ * 取回本次实例的 token URL：从最新一行往前逐个校验，返回第一个仍被服务接受的。
+ * 这样即使日志里堆了历史 token（服务重启后它们全部失效），也不会把窗口加载成 401。
+ * @returns {Promise<string|null>}
+ */
+async function pickLiveTokenUrl() {
+  const urls = readTokenUrls()
+  for (let i = urls.length - 1; i >= 0; i--) {
+    const ok = await tokenWorks(urls[i])
+    if (ok === true) return urls[i]
+  }
+  return null
+}
+
+/**
+ * 服务已就绪后确认 token 可用（自启路径：token 是刚打印的，通常一次即中）。
+ * @param {number} timeoutMs
+ * @returns {Promise<string|null>} 可用的带 token 地址，或 null
+ */
+async function awaitLiveTokenUrl(timeoutMs) {
+  const deadline = Date.now() + timeoutMs
+  for (;;) {
+    const url = await pickLiveTokenUrl()
+    if (url) return url
+    if (Date.now() >= deadline) return null
+    await sleep(500)
+  }
 }
 
 /** 后台隐藏启动 dsh web，日志落盘（与 launcher 行为一致）。 */
@@ -300,7 +374,16 @@ async function bootstrap() {
   log(`Target: ${targetUrl}`)
 
   if (await isServerUp(targetUrl)) {
-    log('Server already running; attaching to it.')
+    // 新版 CLI 认证模式：必须带"本进程仍然有效"的 token，否则窗口会加载成 401。
+    // 注意 server.out.log 是追加写入的，可能残留历史 token（服务重启后全部失效），
+    // 所以这里逐个校验，只采用服务真正接受的那一个。
+    const authed = await pickLiveTokenUrl()
+    if (authed) {
+      targetUrl = authed
+      log('Server already running; attaching with a verified token.')
+    } else {
+      log('Server already running, but no usable token was found in server.out.log.')
+    }
     createWindow()
     loadTarget()
     return
@@ -331,6 +414,12 @@ async function bootstrap() {
   }
 
   const ok = await waitForServer(BOOT_TIMEOUT_MS)
+  if (ok) {
+    // 服务已就绪；取回刚打印的 token 并确认有效，否则窗口加载目标时会 401
+    const authed = await awaitLiveTokenUrl(15000)
+    if (authed) { targetUrl = authed; log('Using a verified authenticated URL') }
+    else log('WARNING: no verified token URL; loading the clean URL')
+  }
   if (!ok) {
     showError(
       'DeepSeek Harness 服务器未能启动。\n\n' +

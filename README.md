@@ -20,6 +20,17 @@ Electron 主进程                    dsh web（Node 宿主进程）
 - 退出行为：窗口全部关闭即退出应用；**仅当服务器是本应用启动的**才会在退出时结束它，
   若服务器事先已在运行则保持不变（浏览器里的网页端不受影响）。
 
+## 窗口特性
+
+| 特性 | 实现 |
+| --- | --- |
+| 无边框窗口 | `titleBarStyle: 'hidden'`；页面顶部即是标题栏 |
+| 窗口按钮 | `window-controls.js` 注入 macOS 风格"红绿灯"（关闭/最小化/最大化·还原），固定在左上角，悬停才显示图标；点击经 `preload.js` 暴露的 `window.dshWindow` → IPC 调主进程 |
+| 拖动窗口 | 侧边栏品牌条（`logoRow`）与主区标题条（`titleRow`）可拖；条内 `button/a/input/textarea/[role=button]/[contenteditable]` 显式 `no-drag`。选择器用 `[class*=]` 而非构建期 hash 类名，应用重新构建后依然有效 |
+| 窗口材质 | `backgroundMaterial: 'acrylic'`（Windows 11 22H2+）。**注意**：本机实测该材质未参与合成，窗口底是直通的桌面；界面观感由 DSH 自带的液态玻璃样式提供（见 `DSH Plugins\liquid-glass`） |
+| token 校验 | 启动时从 `server.out.log` 里**从新到旧逐个校验** launch token，只采用服务真正接受的那个，避免窗口加载成 401；判定"服务在跑"时把 `401` 与 `200` 同等看待，避免误判而重复自启撞端口 |
+| 其他 | 单实例锁（重复启动只聚焦已有窗口）；外部链接走系统浏览器；下载询问保存位置；仅当服务器由本应用启动时才在退出时结束它 |
+
 ## 使用
 
 ```powershell
@@ -64,7 +75,7 @@ npm run pack
 - **推送 `v*` 标签** → 自动在 GitHub 托管 Runner 上构建两个安装包并发布 Release（附件即安装包）；
 - **手动触发**（仓库 Actions 页 → Run workflow）→ 只构建并上传运行产物，不发布 Release。
 
-发新版只需两条命令：
+发新版流程（两条命令，CI 负责打包 + 发布 Release）：
 
 ```powershell
 git tag v0.2.0
@@ -72,6 +83,22 @@ git push origin v0.2.0
 ```
 
 > CI 内网络直连 GitHub/npm，无需镜像环境变量。
+
+若 CI 不可用（网络受限），退回本地打包上传：
+
+```powershell
+$env:ELECTRON_MIRROR = 'https://npmmirror.com/mirrors/electron/'
+$env:ELECTRON_BUILDER_BINARIES_MIRROR = 'https://npmmirror.com/mirrors/electron-builder-binaries/'
+$env:CSC_IDENTITY_AUTO_DISCOVERY = 'false'
+npm run pack
+gh release create v0.2.0 "dist\DeepSeek-Harness-Setup-0.2.0.exe" "dist\DeepSeekHarness-Portable-0.2.0.exe" --title v0.2.0 --generate-notes
+```
+
+## 更新日志
+
+- **v0.2.0** — 外壳补齐"已装环境"里已验证的运行逻辑：`401` 也视为服务在跑、启动时逐个校验 launch token（不再把窗口加载成 401）；品牌条/标题条拖拽区改用 `[class*=]` 选择器（应用换 hash 后仍可拖动，且条内控件保持可点击）。
+- v0.1.1 — 顶部透明拖动条，无边框窗口可拖动。
+- v0.1.0 — 首个版本：窄外壳 + 自定义窗口控制 + GitHub Actions 自动构建发布。
 
 ## 与网页端的行为差异
 
